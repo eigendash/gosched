@@ -1,0 +1,7 @@
+# Build artifacts. results/ is deliberately NOT ignored: the measured output is
+# part of the deliverable and every README number must point at a committed file.
+/bin/
+*.test
+*.out
+*.prof
+.DS_Store
