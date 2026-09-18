@@ -28,6 +28,8 @@ type Counters struct {
 	Blocked    int64
 	Unblocked  int64
 	BlockNanos int64
+	// HandedOff counts queued tasks a blocking worker published for others.
+	HandedOff int64
 
 	QueueDepthSum   int64
 	QueueDepthMax   int64
@@ -42,25 +44,77 @@ type Counters struct {
 // costs sizeof(Event) = 40 bytes.
 const DefaultCapacity = 1 << 16
 
-// ring is one worker's event buffer plus its counters. Exactly one goroutine
-// records into a given ring, so appends need no lock; a reader only looks at
-// slots below the published length, which is what makes a quiescent snapshot
-// safe without a barrier on the hot path.
-type ring struct {
-	buf  []Event
-	n    atomic.Int64
-	cnts Counters
+// helperCapacity caps the rings reserved for transient helper workers. Helpers
+// only exist while every P is blocked, they handle far less work than a real P,
+// and they are churned frequently, so giving each one a full P-sized buffer
+// would spend tens of megabytes to record a few hundred events.
+const helperCapacity = 1 << 10
+
+// ringBuf is the allocation behind a ring. It is created on first use and
+// published atomically, so a scheduler that never records an event (tracing
+// disabled, or a helper that never ran) costs nothing, and a snapshot cannot
+// race the allocation.
+type ringBuf struct {
+	evs []Event
+	// seq publishes shared-ring slots. A ring with several writers cannot use
+	// "the length is the publication" trick, because writer A can claim index 7
+	// while writer B is still filling index 6; seq[i] == i+1 is what tells a
+	// reader that slot i is complete.
+	seq []atomic.Uint64
 }
 
+// ring is one worker's event buffer plus its counters.
+type ring struct {
+	bufp atomic.Pointer[ringBuf]
+	capa int
+	// shared marks rings that several goroutines append to: the ring that
+	// collects submissions from goroutines the scheduler does not own.
+	shared bool
+	n      atomic.Int64
+	cnts   Counters
+}
+
+func (r *ring) buf() *ringBuf {
+	if b := r.bufp.Load(); b != nil {
+		return b
+	}
+	b := &ringBuf{evs: make([]Event, r.capa)}
+	if r.shared {
+		b.seq = make([]atomic.Uint64, r.capa)
+	}
+	if r.bufp.CompareAndSwap(nil, b) {
+		return b
+	}
+	// Another writer installed a buffer first; use theirs so that every writer
+	// publishes into the same slots.
+	return r.bufp.Load()
+}
+
+// record appends ev unless the buffer is full, in which case the event is
+// counted as dropped. The exact counters are updated by the caller, which is
+// why a full buffer still yields exact totals.
 func (r *ring) record(ev Event) {
-	i := r.n.Load()
-	if i >= int64(len(r.buf)) {
+	b := r.buf()
+	if !r.shared {
+		i := r.n.Load()
+		if i >= int64(len(b.evs)) {
+			atomic.AddInt64(&r.cnts.Dropped, 1)
+			return
+		}
+		b.evs[i] = ev
+		// Published last: a reader that sees n also sees the slot contents.
+		r.n.Store(i + 1)
+		return
+	}
+	// Shared ring: claim a slot first, so no two writers ever touch the same
+	// one, then publish it individually.
+	i := r.n.Add(1) - 1
+	if i >= int64(len(b.evs)) {
 		atomic.AddInt64(&r.cnts.Dropped, 1)
 		return
 	}
-	r.buf[i] = ev
-	// Published last: a reader that sees n also sees the slot contents.
-	r.n.Store(i + 1)
+	b.evs[i] = ev
+	b.seq[i].Store(uint64(i + 1))
 }
 
 // Tracer owns the per-worker rings and the scheduler's clock origin.
@@ -97,7 +151,14 @@ func New(procs, helperSlots, capacity int) *Tracer {
 	n := procs + helperSlots + 1
 	t.rings = make([]*ring, n)
 	for i := range t.rings {
-		t.rings[i] = &ring{buf: make([]Event, capacity)}
+		capa := capacity
+		if i >= procs && i < n-1 {
+			capa = helperCapacity
+			if capacity < capa {
+				capa = capacity
+			}
+		}
+		t.rings[i] = &ring{capa: capa, shared: i == n-1}
 	}
 	t.enabled.Store(true)
 	return t
@@ -146,16 +207,21 @@ func (t *Tracer) Submit(p int32, task uint64, origin int32, depth int64) {
 	r.record(Event{Ts: t.Now(), Task: task, Aux: depth, Aux2: int64(origin), P: p, Type: Submit})
 }
 
-// Execute records one completed task run. dur is the wall time the task held
-// the worker.
-func (t *Tracer) Execute(p int32, task uint64, dur int64, depth int64) {
+// Execute records one completed task run.
+//
+// start is the timestamp taken immediately before the task ran and dur is the
+// wall time it held the worker, both measured by the caller. Taking the reading
+// here instead would put the event's timestamp at "whenever this goroutine got
+// scheduled to record it", which can be later than events that causally
+// followed the task, and would also cost a second clock read per task.
+func (t *Tracer) Execute(p int32, task uint64, start, dur, wait int64) {
 	if !t.enabled.Load() {
 		return
 	}
 	r := t.ringFor(p)
 	atomic.AddInt64(&r.cnts.Executed, 1)
 	atomic.AddInt64(&r.cnts.ExecutedNanos, dur)
-	r.record(Event{Ts: t.Now() - dur, Task: task, Aux: dur, Aux2: depth, P: p, Type: Execute})
+	r.record(Event{Ts: start, Task: task, Aux: dur, Aux2: wait, P: p, Type: Execute})
 }
 
 // Steal records a successful transfer, crediting the victim's exact counter so
@@ -213,17 +279,20 @@ func (t *Tracer) Unpark(p int32) {
 	r.record(Event{Ts: t.Now(), P: p, Type: Unpark})
 }
 
-// Block records a cooperative blocking handoff.
-func (t *Tracer) Block(p int32, pending int64) {
+// Block records a cooperative blocking handoff. handed is how many queued tasks
+// the blocking worker published to the shared queue.
+func (t *Tracer) Block(p int32, handed, pending int64) {
 	if !t.enabled.Load() {
 		return
 	}
 	r := t.ringFor(p)
 	atomic.AddInt64(&r.cnts.Blocked, 1)
-	r.record(Event{Ts: t.Now(), Aux: pending, P: p, Type: Block})
+	atomic.AddInt64(&r.cnts.HandedOff, handed)
+	r.record(Event{Ts: t.Now(), Aux: handed, Aux2: pending, P: p, Type: Block})
 }
 
-// Unblock ends a blocking window and records how long it lasted.
+// Unblock ends a blocking window. start is when the window opened and dur is
+// how long it lasted; the event is stamped at its end.
 func (t *Tracer) Unblock(p int32, dur int64) {
 	if !t.enabled.Load() {
 		return
@@ -282,6 +351,7 @@ func loadCounters(c *Counters) Counters {
 		Unparked:        atomic.LoadInt64(&c.Unparked),
 		Blocked:         atomic.LoadInt64(&c.Blocked),
 		Unblocked:       atomic.LoadInt64(&c.Unblocked),
+		HandedOff:       atomic.LoadInt64(&c.HandedOff),
 		BlockNanos:      atomic.LoadInt64(&c.BlockNanos),
 		QueueDepthSum:   atomic.LoadInt64(&c.QueueDepthSum),
 		QueueDepthMax:   atomic.LoadInt64(&c.QueueDepthMax),
@@ -304,11 +374,27 @@ func (t *Tracer) Snapshot() *Recording {
 	for i, r := range t.rings {
 		rec.PerP[i] = loadCounters(&r.cnts)
 		rec.Dropped += rec.PerP[i].Dropped
-		n := r.n.Load()
-		if n > int64(len(r.buf)) {
-			n = int64(len(r.buf))
+		b := r.bufp.Load()
+		if b == nil {
+			continue
 		}
-		rec.Events = append(rec.Events, r.buf[:n]...)
+		n := r.n.Load()
+		if n > int64(len(b.evs)) {
+			n = int64(len(b.evs))
+		}
+		if !r.shared {
+			rec.Events = append(rec.Events, b.evs[:n]...)
+			continue
+		}
+		// A shared ring can have a claimed slot that its writer has not
+		// published yet; skip it rather than read a half-written event. That is
+		// only reachable if the caller snapshots a running scheduler, which the
+		// API documents as unsupported.
+		for i := int64(0); i < n; i++ {
+			if b.seq[i].Load() == uint64(i+1) {
+				rec.Events = append(rec.Events, b.evs[i])
+			}
+		}
 	}
 	// Merge order matters for the determinism test: sort by timestamp and keep
 	// per-ring order for ties so two identical runs produce identical slices.
@@ -322,5 +408,5 @@ func (t *Tracer) capacityPerRing() int {
 	if len(t.rings) == 0 {
 		return 0
 	}
-	return len(t.rings[0].buf)
+	return t.rings[0].capa
 }

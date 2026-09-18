@@ -89,7 +89,7 @@ type Event struct {
 	//	Migrate    Aux=originating P,              Aux2=0
 	//	Park       Aux=local queue depth,          Aux2=idle streak
 	//	Unpark     Aux=0,                          Aux2=0
-	//	Block      Aux=pending tasks at block time, Aux2=0
+	//	Block      Aux=tasks handed off,           Aux2=pending at block time
 	//	Unblock    Aux=blocked duration in ns,      Aux2=0
 	Aux int64
 	// Aux2 is the second payload word; see Aux.

@@ -110,6 +110,7 @@ func addCounters(dst, src *Counters) {
 	dst.Unparked += src.Unparked
 	dst.Blocked += src.Blocked
 	dst.Unblocked += src.Unblocked
+	dst.HandedOff += src.HandedOff
 	dst.BlockNanos += src.BlockNanos
 	dst.QueueDepthSum += src.QueueDepthSum
 	dst.QueueDepthMax = max64(dst.QueueDepthMax, src.QueueDepthMax)
@@ -181,6 +182,9 @@ func (r *Report) WriteText(w io.Writer) error {
 		r.Totals.Blocked, r.Totals.Unblocked, millis(r.Totals.BlockNanos)); err != nil {
 		return err
 	}
+	if err := p("tasks handed off while blocked: %d\n", r.Totals.HandedOff); err != nil {
+		return err
+	}
 	if err := p("worker utilization           : mean %.1f%%, min %.1f%%, max %.1f%% of wall time\n",
 		r.MeanUtilization*100, r.MinUtilization*100, r.MaxUtilization*100); err != nil {
 		return err
@@ -226,6 +230,7 @@ func (r *Report) WriteText(w io.Writer) error {
 		{"parked", func(c Counters) string { return fmt.Sprint(c.Parked) }},
 		{"unparked", func(c Counters) string { return fmt.Sprint(c.Unparked) }},
 		{"blocked", func(c Counters) string { return fmt.Sprint(c.Blocked) }},
+		{"handed off", func(c Counters) string { return fmt.Sprint(c.HandedOff) }},
 		{"submitted", func(c Counters) string { return fmt.Sprint(c.Submits) }},
 		{"events dropped", func(c Counters) string { return fmt.Sprint(c.Dropped) }},
 	}

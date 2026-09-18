@@ -50,7 +50,7 @@ func TestDisabledTracerRecordsNothing(t *testing.T) {
 		t.Fatal("tracer reports enabled after SetEnabled(false)")
 	}
 	tr.Submit(0, 1, PExternal, 0)
-	tr.Execute(0, 1, 1234, 0)
+	tr.Execute(0, 1, 0, 1234, 0)
 	tr.Park(1, 0, 0)
 	rec := tr.Snapshot()
 	if len(rec.Events) != 0 {
@@ -72,16 +72,16 @@ func synthetic() *Recording {
 	tr.Submit(PExternal, 2, PExternal, 0)
 
 	tr.Migrate(0, 1, PExternal)
-	tr.Execute(0, 1, 5_000_000, 0)
+	tr.Execute(0, 1, 1_000_000, 5_000_000, 0)
 
 	tr.Steal(1, 2, 0, 1)
 	tr.Migrate(1, 2, PExternal)
-	tr.Execute(1, 2, 3_000_000, 0)
+	tr.Execute(1, 2, 2_000_000, 3_000_000, 0)
 	tr.StealFail(1, 0, 0)
 	tr.StealFail(1, 0, 0)
 	tr.Park(0, 0, 3)
 	tr.Unpark(0)
-	tr.Block(0, 0)
+	tr.Block(0, 3, 7)
 	tr.Unblock(0, 1_500_000)
 	tr.ObserveQueueDepth(0, 2)
 	tr.ObserveQueueDepth(0, 5)

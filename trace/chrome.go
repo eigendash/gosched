@@ -170,7 +170,7 @@ func WriteChrome(w io.Writer, rec *Recording) error {
 		case Block:
 			ce.Ph = "i"
 			ce.S = "t"
-			ce.Args = map[string]any{"pending": ev.Aux}
+			ce.Args = map[string]any{"handed_off": ev.Aux, "pending": ev.Aux2}
 		case Unblock:
 			ce.Ph = "i"
 			ce.S = "t"
@@ -283,7 +283,8 @@ func ParseChrome(r io.Reader) (*Recording, error) {
 			ev.Aux = int64Arg(ce.Args, "depth")
 			ev.Aux2 = int64Arg(ce.Args, "idle_rounds")
 		case Block:
-			ev.Aux = int64Arg(ce.Args, "pending")
+			ev.Aux = int64Arg(ce.Args, "handed_off")
+			ev.Aux2 = int64Arg(ce.Args, "pending")
 		case Unblock:
 			ev.Aux = int64Arg(ce.Args, "blocked_ns")
 		}
