@@ -1,0 +1,10 @@
+gosched measurement host
+========================
+go version      : go1.27.1
+os/arch         : darwin/arm64 (macOS 15.7.7)
+logical cores   : 12
+gomaxprocs      : 12
+host probed at  : 2026-10-07T13:38:45Z
+cpu             : Apple M4 Pro
+core topology   : 8 performance + 4 efficiency cores
+processor counts: see bench.csv

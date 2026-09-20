@@ -1,0 +1,27 @@
+tracing overhead (sched vs sched-notrace, median run)
+=====================================================
+workload     P      traced t/s    untraced t/s    slowdown     dropped
+uniform      1            9889            9910        0.2%           0
+uniform      2           19665           19861        1.0%           0
+uniform      4           38340           39395        2.7%           0
+uniform      8           45478           42080       -8.1%           0
+uniform     10           65315           69537        6.1%           0
+uniform     12           49662           45276       -9.7%           0
+forkjoin     1           24495           24698        0.8%           0
+forkjoin     2           45670           45213       -1.0%           0
+forkjoin     4           61102           67787        9.9%           0
+forkjoin     8           79590          101276       21.4%           0
+forkjoin    10          103904          100839       -3.0%           0
+forkjoin    12          102540          113571        9.7%           0
+skewed       1           14354           14824        3.2%           0
+skewed       2           30196           30776        1.9%           0
+skewed       4           58755           58111       -1.1%           0
+skewed       8           85893           90154        4.7%           0
+skewed      10           85284           92286        7.6%           0
+skewed      12           93561           86561       -8.1%           0
+blocking     1           16358           16836        2.8%           0
+blocking     2           19496           19951        2.3%           0
+blocking     4           25874           26921        3.9%           0
+blocking     8           49267           54258        9.2%           0
+blocking    10           60471           64708        6.5%           0
+blocking    12           66295           73294        9.5%           0

@@ -1,0 +1,86 @@
+gosched benchmark summary
+=========================
+host: go=go1.27.1 os=darwin/arm64 logical_cores=12 gomaxprocs_default=12
+cpu : Apple M4 Pro
+
+Each cell is the median of the repetitions in bench.csv.
+"speedup" is tasks/sec at P divided by tasks/sec at P=1 for the same implementation.
+
+workload: uniform (6000 tasks per run)
+impl                     P=1           P=2           P=4           P=8          P=10          P=12
+throughput         tasks/sec     tasks/sec     tasks/sec     tasks/sec     tasks/sec     tasks/sec
+naive                   9870         19535         39053         45320         68201         48425
+pool                    9951         19841         38855         47787         63437         44977
+sched                   9889         19665         38340         45478         65315         49662
+sched-notrace           9910         19861         39395         42080         69537         45276
+speedup               vs P=1        vs P=1        vs P=1        vs P=1        vs P=1        vs P=1
+naive                  1.00x         1.98x         3.96x         4.59x         6.91x         4.91x
+pool                   1.00x         1.99x         3.90x         4.80x         6.38x         4.52x
+sched                  1.00x         1.99x         3.88x         4.60x         6.60x         5.02x
+sched-notrace          1.00x         2.00x         3.98x         4.25x         7.02x         4.57x
+
+workload: forkjoin (8191 tasks per run)
+impl                     P=1           P=2           P=4           P=8          P=10          P=12
+throughput         tasks/sec     tasks/sec     tasks/sec     tasks/sec     tasks/sec     tasks/sec
+naive                  24453         47757         61595         82646         96652        107888
+pool                   24694         48082         70696         72975        100115        101716
+sched                  24495         45670         61102         79590        103904        102540
+sched-notrace          24698         45213         67787        101276        100839        113571
+speedup               vs P=1        vs P=1        vs P=1        vs P=1        vs P=1        vs P=1
+naive                  1.00x         1.95x         2.52x         3.38x         3.95x         4.41x
+pool                   1.00x         1.95x         2.86x         2.96x         4.05x         4.12x
+sched                  1.00x         1.86x         2.49x         3.25x         4.24x         4.19x
+sched-notrace          1.00x         1.83x         2.74x         4.10x         4.08x         4.60x
+
+workload: skewed (4040 tasks per run)
+impl                     P=1           P=2           P=4           P=8          P=10          P=12
+throughput         tasks/sec     tasks/sec     tasks/sec     tasks/sec     tasks/sec     tasks/sec
+naive                  14289         30215         57274         79563         87015         92878
+pool                   14459         30672         58923         80792         90257         89370
+sched                  14354         30196         58755         85893         85284         93561
+sched-notrace          14824         30776         58111         90154         92286         86561
+speedup               vs P=1        vs P=1        vs P=1        vs P=1        vs P=1        vs P=1
+naive                  1.00x         2.11x         4.01x         5.57x         6.09x         6.50x
+pool                   1.00x         2.12x         4.08x         5.59x         6.24x         6.18x
+sched                  1.00x         2.10x         4.09x         5.98x         5.94x         6.52x
+sched-notrace          1.00x         2.08x         3.92x         6.08x         6.23x         5.84x
+
+workload: blocking (800 tasks per run)
+impl                     P=1           P=2           P=4           P=8          P=10          P=12
+throughput         tasks/sec     tasks/sec     tasks/sec     tasks/sec     tasks/sec     tasks/sec
+naive                 654999       1074006       1038005       1048780       1096829       1077441
+pool                    3428          6884         13720         27357         34356         41085
+sched                  16358         19496         25874         49267         60471         66295
+sched-notrace          16836         19951         26921         54258         64708         73294
+speedup               vs P=1        vs P=1        vs P=1        vs P=1        vs P=1        vs P=1
+naive                  1.00x         1.64x         1.58x         1.60x         1.67x         1.64x
+pool                   1.00x         2.01x         4.00x         7.98x        10.02x        11.98x
+sched                  1.00x         1.19x         1.58x         3.01x         3.70x         4.05x
+sched-notrace          1.00x         1.18x         1.60x         3.22x         3.84x         4.35x
+
+scheduler decisions behind the numbers (median run at each P)
+workload     P      steals    attempts    steal%    migrations  handed_off   dropped
+uniform      1           0           0      0.0%             0           0         0
+uniform      2           0           2      0.0%             0           0         0
+uniform      4          34         103     33.0%            34           0         0
+uniform      8         263         735     35.8%           263           0         0
+uniform     10         235         846     27.8%           235           0         0
+uniform     12         409        1005     40.7%           409           0         0
+forkjoin     1           0           0      0.0%             0           0         0
+forkjoin     2           0           3      0.0%             0           0         0
+forkjoin     4          78         147     53.1%            78           0         0
+forkjoin     8         121         528     22.9%           121           0         0
+forkjoin    10         149         582     25.6%           149           0         0
+forkjoin    12         169         971     17.4%           169           0         0
+skewed       1           0           0      0.0%             0           0         0
+skewed       2           6          10     60.0%             6           0         0
+skewed       4          53         135     39.3%            53           0         0
+skewed       8         455        1146     39.7%           455           0         0
+skewed      10        1292        4486     28.8%          1292           0         0
+skewed      12        1334        5116     26.1%          1334           0         0
+blocking     1           0           0      0.0%           624      138465         0
+blocking     2           0           9      0.0%           655      104652         0
+blocking     4           2          53      3.8%           695       98611         0
+blocking     8           0         381      0.0%           753      101031         0
+blocking    10           2         372      0.5%           760       84381         0
+blocking    12           0         505      0.0%           761       79337         0

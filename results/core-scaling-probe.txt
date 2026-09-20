@@ -1,0 +1,17 @@
+work-unit scaling probe
+=======================
+Each row runs the same work on N threads and reports the aggregate rate and
+the per-thread rate. If a unit scales, the per-thread rate stays flat.
+
+arithmetic unit calibrated to 1938965 iterations (~2ms single-threaded)
+
+threads     clock agg/s clock /thread   arith agg/s arith /thread
+1                   499           499           501           501
+2                   999           500           972           486
+4                  1996           499          1840           460
+8                  3937           492          2872           359
+10                 4666           467          2918           292
+12                 4719           393          2890           241
+
+A flat per-thread clock rate means the spin primitive is not the limit; a
+falling one means part of the measured 'scaling' is clock-read contention.

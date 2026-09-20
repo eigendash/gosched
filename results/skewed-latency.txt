@@ -1,0 +1,60 @@
+submit-to-completion latency
+============================
+Median run per cell; latency is measured per task from the submit call to
+the moment the task returns, so for the pool and the scheduler it includes
+queueing time, and for the naive implementation it is almost pure service time.
+
+workload: uniform
+impl              P           p50           p99           max     tasks/sec
+naive             1     304.275ms     598.827ms     604.634ms          9870
+naive             2      153.05ms      300.16ms     303.057ms         19535
+naive             4       75.91ms     149.505ms     151.119ms         39053
+naive             8       65.21ms     126.421ms     131.346ms         45320
+naive            10      42.677ms      82.752ms      84.416ms         68201
+naive            12       21.71ms      68.704ms      121.07ms         48425
+pool              1     301.227ms     596.395ms     602.369ms          9951
+pool              2     150.935ms     298.901ms     301.836ms         19841
+pool              4      77.003ms     152.235ms     153.717ms         38855
+pool              8      74.684ms     123.793ms     124.983ms         47787
+pool             10      49.963ms      92.836ms      93.911ms         63437
+pool             12      71.072ms     131.504ms     132.949ms         44977
+sched             1     303.052ms     597.851ms     603.711ms          9889
+sched             2      126.23ms     266.043ms     269.005ms         19665
+sched             4      45.549ms     105.688ms     107.256ms         38340
+sched             8      46.603ms      85.519ms      95.379ms         45478
+sched            10      34.405ms      81.748ms      88.871ms         65315
+sched            12      56.326ms     116.142ms     120.328ms         49662
+sched-notrace     1     303.326ms     598.061ms     603.949ms          9910
+sched-notrace     2      132.43ms     280.136ms     283.078ms         19861
+sched-notrace     4      67.484ms     141.478ms     143.033ms         39395
+sched-notrace     8      71.647ms     140.296ms     141.102ms         42080
+sched-notrace    10      29.688ms      70.966ms      71.897ms         69537
+sched-notrace    12      21.843ms      68.258ms      92.591ms         45276
+
+workload: skewed
+impl              P           p50           p99           max     tasks/sec
+naive             1     139.982ms     275.811ms     280.764ms         14289
+naive             2       63.82ms     128.327ms     131.867ms         30215
+naive             4      32.178ms      65.304ms      68.448ms         57274
+naive             8      22.541ms      46.818ms       49.17ms         79563
+naive            10      19.782ms      41.657ms      44.882ms         87015
+naive            12      24.165ms      38.507ms       42.05ms         92878
+pool              1     151.032ms     277.939ms     278.942ms         14459
+pool              2      66.345ms     130.254ms     131.313ms         30672
+pool              4      32.973ms      64.977ms      67.859ms         58923
+pool              8      25.107ms      45.924ms       49.42ms         80792
+pool             10      19.729ms       40.88ms      44.206ms         90257
+pool             12      19.595ms      39.936ms      43.041ms         89370
+sched             1     132.524ms     275.768ms     280.719ms         14354
+sched             2      54.395ms     116.223ms     117.875ms         30196
+sched             4      33.297ms      65.124ms      67.783ms         58755
+sched             8      16.199ms      37.375ms      44.916ms         85893
+sched            10       4.343ms      20.767ms      23.149ms         85284
+sched            12       8.201ms      16.789ms       33.71ms         93561
+sched-notrace     1     140.754ms     266.806ms     271.779ms         14824
+sched-notrace     2      45.175ms     106.448ms     108.232ms         30776
+sched-notrace     4      18.838ms      52.047ms      53.247ms         58111
+sched-notrace     8      18.043ms      36.752ms      40.801ms         90154
+sched-notrace    10       8.833ms      39.177ms      40.167ms         92286
+sched-notrace    12      10.485ms      36.235ms      40.037ms         86561
+

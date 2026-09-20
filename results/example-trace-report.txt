@@ -1,0 +1,38 @@
+source: example-trace.json (re-imported, not the live recording)
+
+gosched trace report
+====================
+wall time                    : 15.128 ms
+logical processors (P)       : 4
+event capacity per worker    : 65536
+events recorded              : 1260
+events dropped               : 0 (0.0000% of generated)
+tasks submitted              : 533
+tasks executed               : 533
+execution migrations         : 52 (9.76% of executions ran off their submitting P)
+steal attempts               : 134
+steal successes              : 52 (38.81% of attempts; 82 probes absorbed by empty victims)
+mean local queue depth       : 27.06
+max local queue depth        : 132
+park / unpark                : 4 / 4
+block / unblock              : 0 / 0 (0.000 ms blocked in total)
+tasks handed off while blocked: 0
+worker utilization           : mean 90.5%, min 90.0%, max 90.9% of wall time
+
+per-worker
+worker                          P0        P1        P2        P3   helpers  external
+executed                       166        81        98       188         0         0
+busy ms                       13.7      13.8      13.6      13.7       0.0       0.0
+utilization                  90.6%     90.9%     90.0%     90.5%      0.0%      0.0%
+steal attempts                  44        32         7        51         0         0
+steal successes                 19        14         0        19         0         0
+stolen in                       19        14         0        19         0         0
+stolen out (donated)             0         9        43         0         0         0
+probes absorbed                 28        33         6        15         0         0
+ran off-origin                  19        14         0        19         0         0
+parked                           1         1         1         1         0         0
+unparked                         1         1         1         1         0         0
+blocked                          0         0         0         0         0         0
+handed off                       0         0         0         0         0         0
+submitted                        0         0         0         0         0       533
+events dropped                   0         0         0         0         0         0

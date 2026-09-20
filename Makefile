@@ -7,7 +7,7 @@ GO ?= go
 PKGS := ./...
 
 .PHONY: all build vet fmt fmtcheck test test-race test-stress cover \
-        bench bench-short results trace-report example-trace clean verify
+        bench bench-short results trace-report example-trace probe clean verify
 
 all: build vet test
 
@@ -46,15 +46,20 @@ bench:
 
 # The real measurement harness: full matrix written into results/.
 results:
-	$(GO) run ./cmd/gosched-bench -out ../results -reps 5
+	$(GO) run ./cmd/gosched-bench -out ../results -reps 7 -procs 1,2,4,8,10,12
 
 # Human-readable aggregation of a recorded trace.
 trace-report:
 	$(GO) run ./cmd/gosched-trace -in ../results/example-trace.json
 
-# Regenerate the committed example trace + its report from a deterministic run.
+# Regenerate the committed example trace + its report from a fixed seed.
 example-trace:
 	$(GO) run ./cmd/gosched-bench -mode example -out ../results
+
+# Work-unit scaling probe: separates "the machine saturates" from "the harness
+# saturates" for the speedup curves.
+probe:
+	$(GO) run ./cmd/gosched-bench -mode probe -out ../results -procs 1,2,4,8,10,12
 
 verify: build vet fmtcheck test-race test-stress
 

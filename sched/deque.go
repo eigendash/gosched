@@ -29,12 +29,11 @@ type dequeBuf struct {
 // A thief reads top before bottom, so its top can be stale by the time it reads
 // a slot; if other thieves meanwhile advance top and the owner wraps around the
 // buffer, the owner's write and the thief's read can hit the same slot. The
-// read value is always discarded in that case (the CAS on top fails), so the
-// algorithm is still correct — but in Go terms it is a plain data race and
-// therefore undefined behaviour. Accessing slots atomically makes the race
-// benign by construction, and is also what makes the deque sound on a weakly
-// ordered machine such as arm64. func() values are a single pointer, so this
-// costs one release store per push on arm64, not an allocation.
+// value read is discarded in that case (the CAS on top fails), so the algorithm
+// stays correct — but in Go terms it is a plain data race and therefore
+// undefined behaviour. Atomic slots make the race benign by construction, and
+// are also what makes the deque sound on a weakly ordered machine such as
+// arm64.
 
 func taskToWord(t Task) unsafe.Pointer {
 	return *(*unsafe.Pointer)(unsafe.Pointer(&t))
@@ -46,12 +45,12 @@ func wordToTask(p unsafe.Pointer) Task {
 
 func (b *dequeBuf) mask() int64 { return int64(len(b.slots)) - 1 }
 
-func (b *dequeBuf) load(i int64) Task {
-	return wordToTask(atomic.LoadPointer(&b.slots[i&b.mask()]))
+func (b *dequeBuf) load(i int64) unsafe.Pointer {
+	return atomic.LoadPointer(&b.slots[i&b.mask()])
 }
 
-func (b *dequeBuf) store(i int64, t Task) {
-	atomic.StorePointer(&b.slots[i&b.mask()], taskToWord(t))
+func (b *dequeBuf) store(i int64, w unsafe.Pointer) {
+	atomic.StorePointer(&b.slots[i&b.mask()], w)
 }
 
 func newDequeBuf(slots int) *dequeBuf {
@@ -62,7 +61,7 @@ func newDequeBuf(slots int) *dequeBuf {
 //
 // One goroutine (the owner) calls Push and Pop; any number of other goroutines
 // call Steal. The owner end is LIFO, which gives depth-first fork-join
-// behaviour and keeps a task's children on the core that is already warm for
+// behaviour and keeps a task's siblings on the core that is already warm for
 // them; the thief end is FIFO, so the coldest task leaves first.
 //
 // Synchronisation is built from Go's sequentially consistent atomics rather
@@ -73,6 +72,10 @@ func newDequeBuf(slots int) *dequeBuf {
 // The capacity invariant is what keeps the algorithm correct: the owner grows
 // before it would write slot b while b-top >= len(slots), so the entries in
 // [top, bottom) always occupy distinct slots in the currently published buffer.
+//
+// The deque stores untyped words and ships with two thin typed skins: Tasks
+// (the plain scheduler) and workItems (the traced scheduler). Both are one
+// pointer wide, so neither wants a second slot or an allocation.
 type Deque struct {
 	// top is the thief end. Thieves advance it with CAS; the owner only reads it.
 	top atomic.Int64
@@ -90,13 +93,18 @@ func NewDeque() *Deque {
 
 // Push appends t at the owner end. Only the owner may call Push. t must not be
 // nil: a nil slot is how a never-written entry is recognised.
-func (d *Deque) Push(t Task) {
+func (d *Deque) Push(t Task) { d.pushWord(taskToWord(t)) }
+
+// PushItem appends a work item at the owner end. Only the owner may call it.
+func (d *Deque) PushItem(it *workItem) { d.pushWord(unsafe.Pointer(it)) }
+
+func (d *Deque) pushWord(w unsafe.Pointer) {
 	b := d.bottom.Load()
 	buf := d.buf.Load()
 	if b-d.top.Load() >= int64(len(buf.slots)) {
 		buf = d.grow(b)
 	}
-	buf.store(b, t)
+	buf.store(b, w)
 	d.bottom.Store(b + 1)
 }
 
@@ -119,6 +127,23 @@ func (d *Deque) grow(b int64) *dequeBuf {
 // Pop removes the newest task. Only the owner may call Pop. It reports false
 // when the deque is empty, or when a thief won the race for the last entry.
 func (d *Deque) Pop() (Task, bool) {
+	w, ok := d.popWord()
+	if !ok {
+		return nil, false
+	}
+	return wordToTask(w), true
+}
+
+// PopItem removes the newest work item. Only the owner may call PopItem.
+func (d *Deque) PopItem() (*workItem, bool) {
+	w, ok := d.popWord()
+	if !ok {
+		return nil, false
+	}
+	return (*workItem)(w), true
+}
+
+func (d *Deque) popWord() (unsafe.Pointer, bool) {
 	b := d.bottom.Load() - 1
 	d.bottom.Store(b)
 	t := d.top.Load()
@@ -128,7 +153,7 @@ func (d *Deque) Pop() (Task, bool) {
 		return nil, false
 	}
 	buf := d.buf.Load()
-	task := buf.load(b)
+	w := buf.load(b)
 	if t == b {
 		// The last entry is contested: a thief that reads top == t may take it.
 		// The CAS decides the single winner; the loser restores bottom.
@@ -138,7 +163,7 @@ func (d *Deque) Pop() (Task, bool) {
 		}
 		d.bottom.Store(b + 1)
 	}
-	if task == nil {
+	if w == nil {
 		// Defensive: a nil slot with a live index means the caller raced a grow
 		// into territory this buffer never held. Undo the decrement so the
 		// deque is not left short by one entry.
@@ -147,31 +172,48 @@ func (d *Deque) Pop() (Task, bool) {
 		}
 		return nil, false
 	}
-	return task, true
+	return w, true
 }
 
 // Steal removes the oldest task. Any goroutine other than the owner may call
 // Steal, including concurrently with other thieves.
 func (d *Deque) Steal() (Task, bool) {
+	w, ok := d.stealWord()
+	if !ok {
+		return nil, false
+	}
+	return wordToTask(w), true
+}
+
+// StealItem removes the oldest work item.
+func (d *Deque) StealItem() (*workItem, bool) {
+	w, ok := d.stealWord()
+	if !ok {
+		return nil, false
+	}
+	return (*workItem)(w), true
+}
+
+func (d *Deque) stealWord() (unsafe.Pointer, bool) {
 	t := d.top.Load()
 	b := d.bottom.Load()
 	if t >= b {
 		return nil, false
 	}
 	buf := d.buf.Load()
-	task := buf.load(t)
+	w := buf.load(t)
 	if !d.top.CompareAndSwap(t, t+1) {
 		// Another thief (or the owner popping the last entry) moved top first;
 		// the value this call read may already belong to that winner.
 		return nil, false
 	}
-	if task == nil {
+	if w == nil {
 		// A stale t that predates a grow can name a slot this buffer never
 		// held; the CAS above can only have succeeded if top had not advanced,
 		// so this is a defensive check rather than a reachable steady state.
 		return nil, false
 	}
-	return task, true
+	return w, true
 }
 
 // Len is an instantaneous, unsynchronised estimate of the number of queued
