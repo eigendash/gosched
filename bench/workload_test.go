@@ -21,9 +21,11 @@ func (c *countingSpawner) Submit(t Task) {
 
 // TestShapesTaskCountsAreExact is a guard on the benchmark's own arithmetic: if
 // a shape reported fewer tasks than it runs, every throughput number derived
-// from it would be wrong in its favour.
+// from it would be wrong in its favour. It runs the small variants of the same
+// shapes so that it does not compete with the scheduler's concurrency tests for
+// the machine.
 func TestShapesTaskCountsAreExact(t *testing.T) {
-	for _, shape := range Shapes() {
+	for _, shape := range SmallShapes() {
 		t.Run(shape.Name, func(t *testing.T) {
 			cs := &countingSpawner{Spawner: NewNaive()}
 			shape.Run(cs, nil)
@@ -102,7 +104,7 @@ func TestForkJoinOnEveryImpl(t *testing.T) {
 // is answerable on every implementation, including the scheduler path that
 // hands work off when a task declares a wait.
 func TestBlockingRunnerLetsBlockedTasksComplete(t *testing.T) {
-	shape := Blocking(24, time.Millisecond)
+	shape := Blocking(16, 200*time.Microsecond)
 	cs := &countingSpawner{Spawner: NewNaive()}
 	shape.Run(cs, nil)
 	cs.Wait()

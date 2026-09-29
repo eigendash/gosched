@@ -30,7 +30,8 @@ func main() {
 	procsCSV := flag.String("procs", "1,2,4,8,10,12", "comma-separated processor counts")
 	workloadCSV := flag.String("workloads", "uniform,forkjoin,skewed,blocking", "comma-separated workloads")
 	implCSV := flag.String("impls", "naive,pool,sched,sched-notrace", "comma-separated implementations")
-	mode := flag.String("mode", "matrix", "matrix, example or overhead")
+	csvPath := flag.String("in", "results/bench.csv", "raw results to re-analyse in -mode analyze")
+	mode := flag.String("mode", "matrix", "matrix, analyze, example, overhead, probe or machine")
 	flag.Parse()
 
 	if err := os.MkdirAll(*out, 0o755); err != nil {
@@ -47,6 +48,8 @@ func main() {
 		writeScalingProbe(*out, parseProcs(*procsCSV))
 	case "machine":
 		writeMachine(filepath.Join(*out, "machine.txt"), bench.DescribeMachine())
+	case "analyze":
+		analyze(*out, *csvPath)
 	default:
 		fatalf("unknown mode %q", *mode)
 	}
@@ -199,6 +202,76 @@ func writeVariance(path string, all []bench.Result) {
 	}
 }
 
+// analyze re-derives every table the README quotes from the raw runs. It takes
+// no measurements, so re-running it is a cheap way to check that a stated number
+// still follows from the committed data.
+func analyze(outDir, csvPath string) {
+	f, err := os.Open(csvPath)
+	if err != nil {
+		fatal(err)
+	}
+	defer f.Close()
+	all, err := bench.ParseResults(f)
+	if err != nil {
+		fatal(err)
+	}
+	impls := uniqueStrings(all, func(r bench.Result) string { return r.Impl })
+	workloads := uniqueStrings(all, func(r bench.Result) string { return r.Workload })
+	var procs []int
+	seen := map[int]bool{}
+	for _, r := range all {
+		if !seen[r.Procs] {
+			seen[r.Procs] = true
+			procs = append(procs, r.Procs)
+		}
+	}
+	sort.Ints(procs)
+
+	var implList []bench.Impl
+	for _, name := range impls {
+		if im, ok := bench.ImplByName(name); ok {
+			implList = append(implList, im)
+		}
+	}
+	var shapeList []bench.Shape
+	for _, name := range workloads {
+		if sh, ok := bench.ShapeNamed(name); ok {
+			shapeList = append(shapeList, sh)
+		} else {
+			shapeList = append(shapeList, bench.Shape{Name: name, Tasks: taskCount(all, name)})
+		}
+	}
+
+	writeSummary(filepath.Join(outDir, "bench-summary.txt"), bench.DescribeMachine(), all, implList, procs, shapeList)
+	writeVariance(filepath.Join(outDir, "bench-variance.txt"), all)
+	writeLatency(filepath.Join(outDir, "skewed-latency.txt"), all, procs)
+	writeOverheadFrom(all, filepath.Join(outDir, "trace-overhead.txt"), procs)
+	fmt.Fprintf(os.Stderr, "gosched-bench: re-derived summary, variance, latency and overhead from %s (%d runs)\n",
+		csvPath, len(all))
+}
+
+func uniqueStrings(all []bench.Result, key func(bench.Result) string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, r := range all {
+		k := key(r)
+		if !seen[k] {
+			seen[k] = true
+			out = append(out, k)
+		}
+	}
+	return out
+}
+
+func taskCount(all []bench.Result, workload string) int {
+	for _, r := range all {
+		if r.Workload == workload {
+			return r.Tasks
+		}
+	}
+	return 0
+}
+
 func writeMachine(path string, m bench.Machine) {
 	f, err := os.Create(path)
 	if err != nil {
@@ -320,11 +393,14 @@ func writeLatency(path string, all []bench.Result, procs []int) {
 	}
 	defer f.Close()
 	fmt.Fprintf(f, "submit-to-completion latency\n============================\n")
-	fmt.Fprintf(f, "Median run per cell; latency is measured per task from the submit call to\n")
-	fmt.Fprintf(f, "the moment the task returns, so for the pool and the scheduler it includes\n")
-	fmt.Fprintf(f, "queueing time, and for the naive implementation it is almost pure service time.\n\n")
+	fmt.Fprintf(f, "Latency is measured per task from the submit call to the moment the task\n")
+	fmt.Fprintf(f, "returns; for the pool and the scheduler that includes queueing time, while for\n")
+	fmt.Fprintf(f, "the naive implementation it is almost pure service time.\n\n")
+	fmt.Fprintf(f, "The first block reports the median run of each cell. The second reports how\n")
+	fmt.Fprintf(f, "far the p99 moved across the repetitions, because a tail figure from a single\n")
+	fmt.Fprintf(f, "run should not be trusted on its own.\n\n")
 	for _, workload := range []string{"uniform", "skewed"} {
-		fmt.Fprintf(f, "workload: %s\n", workload)
+		fmt.Fprintf(f, "workload: %s (median run per cell)\n", workload)
 		fmt.Fprintf(f, "%-14s%5s%14s%14s%14s%14s\n", "impl", "P", "p50", "p99", "max", "tasks/sec")
 		for _, im := range []string{"naive", "pool", "sched", "sched-notrace"} {
 			for _, p := range procs {
@@ -335,6 +411,35 @@ func writeLatency(path string, all []bench.Result, procs []int) {
 				fmt.Fprintf(f, "%-14s%5d%14s%14s%14s%14.0f\n", im, p,
 					r.P50.Round(time.Microsecond), r.P99.Round(time.Microsecond),
 					r.Max.Round(time.Microsecond), r.Throughput())
+			}
+		}
+		fmt.Fprintln(f)
+
+		fmt.Fprintf(f, "workload: %s (p99 across the repetitions: min, median, max)\n", workload)
+		fmt.Fprintf(f, "%-14s%5s%14s%14s%14s%6s\n", "impl", "P", "p99 min", "p99 median", "p99 max", "n")
+		for _, im := range []string{"naive", "pool", "sched", "sched-notrace"} {
+			for _, p := range procs {
+				var cell []bench.Result
+				for _, r := range all {
+					if r.Impl == im && r.Workload == workload && r.Procs == p {
+						cell = append(cell, r)
+					}
+				}
+				if len(cell) == 0 {
+					continue
+				}
+				lo, hi := cell[0].P99, cell[0].P99
+				for _, r := range cell {
+					if r.P99 < lo {
+						lo = r.P99
+					}
+					if r.P99 > hi {
+						hi = r.P99
+					}
+				}
+				med := bench.Median(cell)
+				fmt.Fprintf(f, "%-14s%5d%14s%14s%14s%6d\n", im, p,
+					lo.Round(time.Microsecond), med.P99.Round(time.Microsecond), hi.Round(time.Microsecond), len(cell))
 			}
 		}
 		fmt.Fprintln(f)

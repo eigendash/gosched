@@ -212,16 +212,32 @@ func Median(results []Result) Result {
 	return sorted[len(sorted)/2]
 }
 
-// Shapes is the four-workload comparison set. The sizes are chosen so that one
-// run takes tens to a few hundred milliseconds: long enough for scheduling
-// behaviour to dominate measurement noise, short enough that a full sweep of
-// implementations, workloads and processor counts stays in minutes.
+// Shapes is the four-workload comparison set used for measurement. The sizes are
+// chosen so that one run takes tens to a few hundred milliseconds: long enough
+// for scheduling behaviour to dominate measurement noise, short enough that a
+// full sweep of implementations, workloads and processor counts stays in
+// minutes.
+//
+// Unit tests use SmallShapes instead: a test that spins twelve cores for a
+// second while another package's concurrency test runs is not measuring the
+// scheduler, it is measuring contention with itself.
 func Shapes() []Shape {
 	return []Shape{
 		Uniform(6000, 100*time.Microsecond),
 		ForkJoin(12, 40*time.Microsecond),
 		Skewed(40, 4*time.Millisecond, 4000, 25*time.Microsecond),
 		Blocking(800, 250*time.Microsecond),
+	}
+}
+
+// SmallShapes is the same four workloads at a scale that costs milliseconds, for
+// tests that only care that each shape runs what it claims to run.
+func SmallShapes() []Shape {
+	return []Shape{
+		Uniform(300, 20*time.Microsecond),
+		ForkJoin(6, 10*time.Microsecond),
+		Skewed(4, 200*time.Microsecond, 160, 10*time.Microsecond),
+		Blocking(24, 50*time.Microsecond),
 	}
 }
 

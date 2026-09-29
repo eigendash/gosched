@@ -1,10 +1,14 @@
 submit-to-completion latency
 ============================
-Median run per cell; latency is measured per task from the submit call to
-the moment the task returns, so for the pool and the scheduler it includes
-queueing time, and for the naive implementation it is almost pure service time.
+Latency is measured per task from the submit call to the moment the task
+returns; for the pool and the scheduler that includes queueing time, while for
+the naive implementation it is almost pure service time.
 
-workload: uniform
+The first block reports the median run of each cell. The second reports how
+far the p99 moved across the repetitions, because a tail figure from a single
+run should not be trusted on its own.
+
+workload: uniform (median run per cell)
 impl              P           p50           p99           max     tasks/sec
 naive             1     304.275ms     598.827ms     604.634ms          9870
 naive             2      153.05ms      300.16ms     303.057ms         19535
@@ -31,7 +35,34 @@ sched-notrace     8      71.647ms     140.296ms     141.102ms         42080
 sched-notrace    10      29.688ms      70.966ms      71.897ms         69537
 sched-notrace    12      21.843ms      68.258ms      92.591ms         45276
 
-workload: skewed
+workload: uniform (p99 across the repetitions: min, median, max)
+impl              P       p99 min    p99 median       p99 max     n
+naive             1     398.068ms     598.827ms     603.209ms     7
+naive             2     298.524ms      300.16ms     305.016ms     7
+naive             4     148.338ms     149.505ms     158.891ms     7
+naive             8      91.962ms     126.421ms     163.956ms     7
+naive            10      68.896ms      82.752ms     104.643ms     7
+naive            12      68.704ms      68.704ms     154.285ms     7
+pool              1     595.474ms     596.395ms     598.465ms     7
+pool              2     298.424ms     298.901ms     299.246ms     7
+pool              4     149.567ms     152.235ms     177.445ms     7
+pool              8      86.641ms     123.793ms     153.908ms     7
+pool             10      90.294ms      92.836ms     105.244ms     7
+pool             12      88.189ms     131.504ms     135.092ms     7
+sched             1     578.393ms     597.851ms     601.412ms     7
+sched             2     266.043ms     266.043ms     299.241ms     7
+sched             4     105.688ms     105.688ms     160.233ms     7
+sched             8      85.519ms      85.519ms     163.005ms     7
+sched            10      72.228ms      81.748ms      91.718ms     7
+sched            12       41.04ms     116.142ms     146.519ms     7
+sched-notrace     1     596.512ms     598.061ms     600.175ms     7
+sched-notrace     2     268.429ms     280.136ms      298.91ms     7
+sched-notrace     4     123.066ms     141.478ms     149.593ms     7
+sched-notrace     8      77.724ms     140.296ms     214.428ms     7
+sched-notrace    10      35.551ms      70.966ms      86.134ms     7
+sched-notrace    12      57.809ms      68.258ms     143.698ms     7
+
+workload: skewed (median run per cell)
 impl              P           p50           p99           max     tasks/sec
 naive             1     139.982ms     275.811ms     280.764ms         14289
 naive             2       63.82ms     128.327ms     131.867ms         30215
@@ -57,4 +88,31 @@ sched-notrace     4      18.838ms      52.047ms      53.247ms         58111
 sched-notrace     8      18.043ms      36.752ms      40.801ms         90154
 sched-notrace    10       8.833ms      39.177ms      40.167ms         92286
 sched-notrace    12      10.485ms      36.235ms      40.037ms         86561
+
+workload: skewed (p99 across the repetitions: min, median, max)
+impl              P       p99 min    p99 median       p99 max     n
+naive             1     136.996ms     275.811ms     375.014ms     7
+naive             2     127.834ms     128.327ms     130.266ms     7
+naive             4      63.367ms      65.304ms      69.277ms     7
+naive             8      36.376ms      46.818ms      46.818ms     7
+naive            10      30.438ms      41.657ms       61.91ms     7
+naive            12      34.538ms      38.507ms       40.95ms     7
+pool              1     260.165ms     277.939ms     399.966ms     7
+pool              2     129.066ms     130.254ms     143.265ms     7
+pool              4      64.381ms      64.977ms      72.758ms     7
+pool              8      38.236ms      45.924ms      53.968ms     7
+pool             10      29.956ms       40.88ms      60.896ms     7
+pool             12      21.426ms      39.936ms      49.602ms     7
+sched             1     244.512ms     275.768ms     370.098ms     7
+sched             2     107.932ms     116.223ms     130.661ms     7
+sched             4      62.273ms      65.124ms      65.275ms     7
+sched             8      16.933ms      37.375ms      45.529ms     7
+sched            10      20.767ms      20.767ms      61.811ms     7
+sched            12      16.789ms      16.789ms      47.935ms     7
+sched-notrace     1     256.107ms     266.806ms     333.621ms     7
+sched-notrace     2      106.05ms     106.448ms     130.088ms     7
+sched-notrace     4      42.826ms      52.047ms      68.124ms     7
+sched-notrace     8      13.179ms      36.752ms      65.122ms     7
+sched-notrace    10       20.55ms      39.177ms      40.057ms     7
+sched-notrace    12      24.316ms      36.235ms      36.616ms     7
 

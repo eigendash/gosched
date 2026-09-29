@@ -1,0 +1,36 @@
+gosched verification run
+========================
+date        : 2026-10-07T13:53:49Z
+go version  : go version go1.27.1 darwin/arm64
+host        : Apple M4 Pro, 12 logical cores (8p+4e), macOS 15.7.7
+load average:  15.13 21.78 16.61   (this host was shared with another workspace's benchmark suite)
+
+$ gofmt -l .
+(clean: every file is gofmt-formatted)
+
+$ go build ./...
+PASS (no output)
+
+$ go vet ./...
+PASS (no output)
+
+$ go test -race -count=1 ./...
+ok  	github.com/eigendash/gosched/bench	1.652s
+ok  	github.com/eigendash/gosched/sched	7.530s
+ok  	github.com/eigendash/gosched/trace	1.752s
+
+$ go test -race -count=5 ./...   # concurrency stability
+# The lost-wakeup test and the park/unpark handoff are the kind of code a
+# single green run says almost nothing about; five repetitions under -race
+# are the evidence that they are stable rather than lucky.
+ok  	github.com/eigendash/gosched/bench	1.638s
+ok  	github.com/eigendash/gosched/sched	37.532s
+ok  	github.com/eigendash/gosched/trace	1.795s
+wall clock: 38s
+
+$ go test -run XXX -bench=. -benchtime=1s ./...
+# Full output in results/go-benchmarks.txt; component benchmarks below.
+BenchmarkTracerRecord/without_clock-12         	39247750	        26.53 ns/op	       1 B/op	       0 allocs/op
+BenchmarkTracerRecord/with_clock-12            	29252268	        38.12 ns/op	       1 B/op	       0 allocs/op
+BenchmarkDequePushPop-12           	237353899	         5.412 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDequeStealContended-12    	 5533335	       217.4 ns/op

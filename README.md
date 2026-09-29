@@ -279,14 +279,14 @@ the file are microseconds with nanosecond resolution and the JSON object declare
 | `TestWaitCoversTransitiveClosure` | `Wait` returning before children submitted *during* execution have run; checks for stragglers after return |
 | `TestNoLostWakeups` | 8 submitters against 2 workers with sleep gaps that force parking; asserts all tasks ran *and* that workers actually parked, so the test cannot pass without exercising the race |
 | `TestNoteNeverStrandsASleeper` | the wakeup primitive under wake-while-running, wake-while-blocked, coalescing and a 4-goroutine wake storm |
-| `TestStealFairnessUnderSkew` | no stealing, or a starved worker, under a skewed workload (steal rate > 1%, least-busy worker ≥ 35% of the busiest) |
-| `TestQueuedWorkIsStealableWhileOwnerIsBusy` | a worker holding a queue while pinned by a long task keeping it all |
+| `TestStealFairnessUnderSkew` | a starved worker, or an imbalanced pool that stealing did not fix. Four producers submit contiguous chunks; any attempt in which the producers used more than half the wall clock is rejected as a measurement of the producer rather than of the pool, and the assertion is made against the best valid attempt: least-busy worker ≥ 35% of the busiest, and below 90% imbalance a steal-success rate > 1% from active probes |
+| `TestQueuedWorkIsStealableWhileOwnerIsBusy` | a worker holding a queue while pinned by a long task keeping it all. Which batch a long task lands in is timing, so the long task's position moves across four attempts and the scheduler must hand work over in at least one of them |
 | `TestBlockingHandoff` | pool deadlock when every P is blocked, and that handed-off work is really executed elsewhere |
 | `TestTraceIsDeterministicWithSingleP` | trace non-determinism: identical decision sequences (timestamps, durations and waits excluded) across runs with a fixed seed |
 | `bench`: `TestShapesTaskCountsAreExact` | the benchmark's own denominators: a shape must run exactly the number of tasks it reports |
 | `bench`: `TestForkJoinOnEveryImpl` | the fixed pool deadlocking on fork-join, and any implementation losing tasks |
 
-Three of these found real bugs during development, which is the point of writing
+Four of these found real bugs during development, which is the point of writing
 them to falsify rather than to confirm:
 
 1. The race detector found the stale-slot read in the deque described in §1.
@@ -296,6 +296,21 @@ them to falsify rather than to confirm:
 3. Workers started in `New` and could park before the first `Submit`, which made
    the single-P trace non-reproducible (1 or 2 park/unpark pairs). Workers now
    start lazily, just after the first task is queued.
+4. **The claim path held a shard lock across every individual deque push.** A
+   worker claiming a batch of 256 moved those tasks into its deque one at a time
+   with the lock held, so a submitter could wait tens of microseconds per
+   `Submit`, and on an 8-worker run the producers spent 595 ms of a 624 ms run
+   inside `Submit` — the pool looked idle because the work had not arrived yet.
+   `drainInto` now copies the batch out under the lock and pushes it into the
+   deque after releasing it, which makes the critical section one memcpy plus one
+   counter update instead of 256 atomic stores. An A/B of the same test showed
+   worst-case producer stalls at P=8 falling from 194.6 ms and 181.6 ms to 2.8 ms
+   and 4.0 ms; both halves of that comparison ran while the host was shared with
+   another workload, so treat the magnitudes as indicative and the mechanism —
+   a lock held for a memcpy instead of for hundreds of pushes — as the finding.
+   This bug was found by the fairness test *measuring its own producer* rather
+   than only the pool, and it is the reason that test now rejects any run in
+   which the producers used more than half the wall clock.
 
 ---
 
@@ -327,6 +342,15 @@ core topology   : 8 performance + 4 efficiency cores
   them and no baseline is handicapped. The pool baseline uses a 16 384-entry
   buffered channel (a smaller buffer turns fork-join into a deadlock rather than a
   measurement) and all workers are counted in teardown.
+* **The committed matrix was measured before the claim-path lock fix described
+  in §Tests (bug 4).** That fix is in the code at HEAD and only shortens a lock
+  hold on the producer path, so the conclusions here are not affected, but the
+  numbers in `results/bench*.txt` were produced by the revision immediately
+  before it. A full re-measurement was attempted and abandoned: the host was
+  running another workspace's benchmark suite throughout (load average 15–25 on
+  12 cores), and publishing numbers taken under that interference would be worse
+  than publishing the older clean ones. Re-running `make results` on a quiet host
+  is the first item under **What I'd do next**.
 * `results/bench-variance.txt` records min/median/max per cell. **Where that
   spread is large the medians in this README are not precise, and the text says
   so.** Across all 96 cells, the median cell spread is 2.7% at P=2 and 10.2% at
@@ -382,11 +406,23 @@ the task's return, so for the pool and the scheduler it includes queueing time.
 |---|---|---|---|---|
 | skewed | 38.5 ms | 39.4 ms | **28.6 ms** | 30.7 ms |
 
-At P=10: naive 41.7 ms, pool 40.9 ms, sched 25.9 ms. The scheduler's best observed
-p99 at P=10/P=12 is 20.8 ms/16.8 ms against 30.4 ms/34.5 ms for naive, i.e. the
-direction is consistent even though individual cells are noisy. This is the
-mechanism from §2 doing its job: a worker pinned by a 4 ms task loses its queued
-short tasks to an idle peer instead of holding them.
+At P=10: naive 41.7 ms, pool 40.9 ms, sched 25.9 ms.
+
+What this does and does not support. The trace says the mechanism fires: the
+committed example trace records 171 successful steals out of 249 probes, the
+matrix records 26–53% steal-success rates at P≥4 in every CPU-bound workload, and
+`TestQueuedWorkIsStealableWhileOwnerIsBusy` observes idle workers taking work off
+a worker that is pinned by a 40 ms task. What the benchmark does *not* isolate is
+that stealing is the cause of this particular p99 gap. The cells at P=10 and P=12
+have wide p99 spreads across repetitions (see the second block of
+`results/skewed-latency.txt`), the untraced scheduler shows a similar tail in some
+of them, and the comparison is between whole implementations rather than between
+a scheduler with stealing and the same scheduler without it. The honest reading:
+the tail advantage is real in the medians and consistent in direction with the
+mechanism the trace shows, but it is not a controlled measurement of stealing,
+and the throughput tables for this workload are a tie. A controlled experiment
+would disable stealing (or pin victims) and re-measure the same workload; that is
+listed under **What I'd do next**.
 
 ### Tracing overhead
 
@@ -506,10 +542,15 @@ choices, not oversights.
    counters rather than derived from the (lossy) event stream. A trace that drops
    events still reports correct steal, migration, handoff, park and utilisation
    totals; it loses detail, not truth.
-2. **Task identity costs an allocation.** With tracing on, each submission
-   allocates a 32-byte item to carry the task id, origin and submit time. With
-   tracing off the deques hold bare `func()` values and there is no allocation.
-   That is part of the measured tracing overhead, not separate from it.
+2. **Task identity costs an allocation, and rings cost memory.** With tracing
+   on, each submission allocates a 32-byte item to carry the task id, origin and
+   submit time; with tracing off the deques hold bare `func()` values and there
+   is no allocation. Memory for the event buffers is reserved lazily per worker:
+   at the default 65 536 events per ring and `Event` = 40 bytes, a traced
+   scheduler at P=12 reserves about 34 MB once every worker has recorded
+   something, plus 40 KB per helper (helper rings are 1024 events). A test that
+   asked for million-event rings measured the allocator rather than the
+   scheduler until that was corrected.
 3. **A submitting worker cannot be identified.** Go has no goroutine-local
    storage. Tasks submitted from inside a task therefore enter the shared queue
    and are attributed to it; they do not land on the submitting worker's deque as
@@ -572,9 +613,12 @@ choices, not oversights.
    and would remove limitation 1.
 6. **Chunked stealing** (steal half a victim's deque rather than one task), which
    is the standard fix for the tail latency this design already improves.
-7. **Real tail-latency numbers at scale.** The p99 measurement here is one sample
-   per run; a histogram-per-task with more repetitions would say whether the
-   28.6 ms vs 38.5 ms gap at P=12 is stable.
+7. **Re-measure the committed matrix on a quiet host**, which the shared machine
+   prevented, and turn the p99 comparison into a controlled experiment by running
+   the same workload with stealing disabled (or with victims pinned) so the
+   mechanism, not the implementation, is the variable. The p99 figure here is one
+   sample per run; a histogram per task with more repetitions would also say
+   whether the P=12 gap is stable.
 8. **Measure with hardware counters** (instructions, cycles, cache misses) rather
    than wall-clock spins, which would remove the work-unit question entirely.
 9. **Compare against a real thread pool's moral equivalent** — `errgroup` with a

@@ -77,6 +77,9 @@ type worker struct {
 	// scratch is the reusable item used on the untraced path, where the deque
 	// stores bare tasks and there is nothing to carry identity in.
 	scratch workItem
+	// drainBuf stages a claimed batch outside the shard lock, so a claim holds
+	// that lock for one memcpy rather than for hundreds of deque pushes.
+	drainBuf []unsafe.Pointer
 }
 
 // Scheduler is a work-stealing pool of P workers over a shared overflow queue.
@@ -191,11 +194,12 @@ func New(opts ...Option) *Scheduler {
 	s.procs = make([]*worker, cfg.procs)
 	for i := range s.procs {
 		s.procs[i] = &worker{
-			s:    s,
-			dq:   NewDeque(),
-			note: newNote(),
-			id:   int32(i),
-			rng:  uint64(cfg.seed) + uint64(i)*0x9E3779B97F4A7C15,
+			s:        s,
+			dq:       NewDeque(),
+			note:     newNote(),
+			id:       int32(i),
+			rng:      uint64(cfg.seed) + uint64(i)*0x9E3779B97F4A7C15,
+			drainBuf: make([]unsafe.Pointer, maxDrainBatch),
 		}
 	}
 	return s
@@ -430,11 +434,12 @@ func (s *Scheduler) ensureHelper() {
 // path: it polls, and it exits as soon as enough real workers are unblocked.
 func (s *Scheduler) runHelper(id int32) {
 	w := &worker{
-		s:      s,
-		dq:     NewDeque(),
-		id:     id,
-		helper: true,
-		rng:    uint64(id)*0x9E3779B97F4A7C15 + 1,
+		s:        s,
+		dq:       NewDeque(),
+		id:       id,
+		helper:   true,
+		rng:      uint64(id)*0x9E3779B97F4A7C15 + 1,
+		drainBuf: make([]unsafe.Pointer, maxDrainBatch),
 	}
 	w.register()
 	defer func() {
@@ -596,7 +601,7 @@ func (w *worker) takeFromGlobal() int {
 	if take > maxDrainBatch {
 		take = maxDrainBatch
 	}
-	return w.s.gq.drainInto(w.dq, int(take), w.s.traced, w.id)
+	return w.s.gq.drainInto(w.dq, int(take), w.s.traced, w.id, w.drainBuf)
 }
 
 func (w *worker) steal(probes int) (*workItem, bool) {
