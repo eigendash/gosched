@@ -1,0 +1,37 @@
+go test -run XXX -bench=. -benchtime=1s ./...
+host: go version go1.27.1 darwin/arm64, Apple M4 Pro, 12 logical cores
+
+goos: darwin
+goarch: arm64
+pkg: github.com/eigendash/gosched/bench
+cpu: Apple M4 Pro
+BenchmarkNaiveUniform-12           	      16	  98439289 ns/op	     16406 ns/task	     60953 tasks/sec
+BenchmarkNaiveForkJoin-12          	      20	  53980521 ns/op	      6590 ns/task	    151746 tasks/sec
+BenchmarkNaiveSkewed-12            	      27	  37523633 ns/op	      9287 ns/task	    107673 tasks/sec
+BenchmarkNaiveBlocking-12          	    1585	    681303 ns/op	       850.1 ns/task	   1176366 tasks/sec
+BenchmarkPoolUniform-12            	      16	  91821888 ns/op	     15303 ns/task	     65345 tasks/sec
+BenchmarkPoolForkJoin-12           	      21	  58060950 ns/op	      7088 ns/task	    141083 tasks/sec
+BenchmarkPoolSkewed-12             	      32	  40025730 ns/op	      9907 ns/task	    100939 tasks/sec
+BenchmarkPoolBlocking-12           	      60	  20280529 ns/op	     25348 ns/task	     39450 tasks/sec
+BenchmarkSchedUniform-12           	      15	  99046092 ns/op	     15954 ns/task	     62679 tasks/sec
+BenchmarkSchedForkJoin-12          	      20	  60220400 ns/op	      6846 ns/task	    146065 tasks/sec
+BenchmarkSchedSkewed-12            	      30	  41614396 ns/op	      9674 ns/task	    103366 tasks/sec
+BenchmarkSchedBlocking-12          	      75	  15252674 ns/op	     17367 ns/task	     57582 tasks/sec
+BenchmarkSchedNoTraceUniform-12    	      14	  97025684 ns/op	     16167 ns/task	     61853 tasks/sec
+BenchmarkSchedNoTraceSkewed-12     	      33	  32067955 ns/op	      7931 ns/task	    126095 tasks/sec
+BenchmarkTracerRecord/without_clock-12         	39247750	        26.53 ns/op	       1 B/op	       0 allocs/op
+BenchmarkTracerRecord/with_clock-12            	29252268	        38.12 ns/op	       1 B/op	       0 allocs/op
+PASS
+ok  	github.com/eigendash/gosched/bench	20.644s
+?   	github.com/eigendash/gosched/cmd/gosched-bench	[no test files]
+?   	github.com/eigendash/gosched/cmd/gosched-trace	[no test files]
+goos: darwin
+goarch: arm64
+pkg: github.com/eigendash/gosched/sched
+cpu: Apple M4 Pro
+BenchmarkDequePushPop-12           	237353899	         5.412 ns/op	       0 B/op	       0 allocs/op
+BenchmarkDequeStealContended-12    	 5533335	       217.4 ns/op
+PASS
+ok  	github.com/eigendash/gosched/sched	3.413s
+PASS
+ok  	github.com/eigendash/gosched/trace	0.193s

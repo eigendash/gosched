@@ -46,20 +46,20 @@ bench:
 
 # The real measurement harness: full matrix written into results/.
 results:
-	$(GO) run ./cmd/gosched-bench -out ../results -reps 7 -procs 1,2,4,8,10,12
+	$(GO) run ./cmd/gosched-bench -out results -reps 7 -procs 1,2,4,8,10,12
 
 # Human-readable aggregation of a recorded trace.
 trace-report:
-	$(GO) run ./cmd/gosched-trace -in ../results/example-trace.json
+	$(GO) run ./cmd/gosched-trace -in results/example-trace.json
 
 # Regenerate the committed example trace + its report from a fixed seed.
 example-trace:
-	$(GO) run ./cmd/gosched-bench -mode example -out ../results
+	$(GO) run ./cmd/gosched-bench -mode example -out results
 
 # Work-unit scaling probe: separates "the machine saturates" from "the harness
 # saturates" for the speedup curves.
 probe:
-	$(GO) run ./cmd/gosched-bench -mode probe -out ../results -procs 1,2,4,8,10,12
+	$(GO) run ./cmd/gosched-bench -mode probe -out results -procs 1,2,4,8,10,12
 
 verify: build vet fmtcheck test-race test-stress
 

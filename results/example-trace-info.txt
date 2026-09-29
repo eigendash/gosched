@@ -1,17 +1,17 @@
 example-trace.json
-  bytes            : 159081
-  events recorded  : 1260
+  bytes            : 186827
+  events recorded  : 1494
   events dropped   : 0
   logical P        : 4
-  wall (ns)        : 15128000
+  wall (ns)        : 15876625
   tasks executed   : 533
-  steal attempts   : 134
-  steal successes  : 52
+  steal attempts   : 249
+  steal successes  : 171
   execute          : 533
-  migrate          : 52
+  migrate          : 171
   park             : 4
-  steal            : 52
-  steal_fail       : 82
+  steal            : 171
+  steal_fail       : 78
   submit           : 533
   unpark           : 4
   open it with     : chrome://tracing or https://ui.perfetto.dev

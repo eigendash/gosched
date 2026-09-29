@@ -238,23 +238,28 @@ export dropped a field the analysis needs, the report cannot be produced.
 
 ## Reading the committed example trace
 
-`results/example-trace.json` (159 KB, 1260 events, **0 dropped**) is a capture of a
+`results/example-trace.json` (187 KB, 1494 events, **0 dropped**) is a capture of a
 fork-join tree plus a skewed burst at P=4, 533 tasks, re-imported and analysed in
 `results/example-trace-report.txt`:
 
 | observation | value | what it says |
 |---|---|---|
-| steal attempts / successes | 134 / 52 → **38.8%** | thieves found work about two times in five |
-| probes absorbed by empty victims | 82 | the other three probes in five hit an empty deque |
-| execution migrations | 52 (9.8% of executions) | exactly the steal successes: every transferred task ran somewhere other than where it was claimed |
-| mean / max local queue depth | 27.1 / 132 | claiming half the shared queue produces genuinely deep local deques, which is what gives stealing something to do |
-| per-P utilisation | 90.0%–90.9% (mean 90.5%) | all four workers were busy for essentially the whole run; work was not sitting in one deque |
+| steal attempts / successes | 249 / 171 → **68.7%** | once local queues are deep, a probe finds work two times in three |
+| probes absorbed by empty victims | 78 | the remaining probes hit a deque somebody else had already drained |
+| execution migrations | 171 (32.1% of executions) | exactly the steal successes: every transferred task ran somewhere other than where it was claimed |
+| mean / max local queue depth | 41.0 / 200 | claiming half the shared queue produces genuinely deep local deques, which is what gives stealing something to do |
+| per-P utilisation | 83.5%–95.6% (mean 87.1%) | no worker was starved, and the least busy one was still busy five sixths of the run |
 | park / unpark | 4 / 4 | each worker parked once, at the end |
-| donated work (stolen out) | P2: 43, P1: 9, P0/P3: 0 | the imbalance is visible per worker: P2 hoarded, then gave it away |
+| donated work (stolen out) | P1: 92, P3: 76, P2: 3, P0: 0 | the imbalance is visible per worker: P1 and P3 hoarded, then gave it away, while P0 kept everything it claimed |
 
 That last row is the kind of statement only the trace can support, and it is the
 answer to "why was it faster": the run was balanced *by transfers between
-workers*, and the transfer count is right there.
+workers*, and the transfer count is right there — P0 and P2 executed 101 and 70
+stolen tasks respectively, which is 171 of the 533 executions.
+
+The trace is a capture of a real run, so re-running `make example-trace` produces
+a different but similar capture; the numbers above are from the committed file
+(`results/example-trace-info.txt` records its size and event histogram).
 
 Open the file in `chrome://tracing` or <https://ui.perfetto.dev>; timestamps in
 the file are microseconds with nanosecond resolution and the JSON object declares
@@ -430,6 +435,34 @@ Read this together with the throughput tables and it explains them:
 * Zero events were dropped in every measured cell (`trace_dropped = 0` in
   `results/bench.csv`), so these numbers come from complete traces.
 
+### Second, independent measurement: the Go benchmarks
+
+`results/go-benchmarks.txt` is the output of
+`go test -run XXX -bench=. -benchtime=1s ./...`, a separate measurement pass with
+a different methodology (sequential benchmarks, no interleaving, default
+`GOMAXPROCS`). The component costs it prices are the cleanest numbers in the
+project:
+
+```
+BenchmarkDequePushPop-12          5.412 ns/op   0 B/op   0 allocs/op
+BenchmarkDequeStealContended-12   217.4 ns/op                       (4 thieves, aggregate per steal)
+BenchmarkTracerRecord/without_clock-12   26.53 ns/op   1 B/op   0 allocs/op
+BenchmarkTracerRecord/with_clock-12      38.12 ns/op   1 B/op   0 allocs/op
+```
+
+Two things follow. The owner's push/pop path costs 5.4 ns and allocates nothing,
+which is what makes the LIFO owner end cheap. An event append costs 26.5 ns, of
+which the `time.Now` that stamps it is 11.6 ns — so a traced task pays roughly
+40 ns per recorded event, and the end-to-end overheads above (3–10%, +21.4% worst
+case on fork-join) are the sum of several events per task plus the per-task
+identity allocation.
+
+The end-to-end rows in that file are single-pass and therefore noisier than the
+matrix (for example `BenchmarkSchedSkewed` 103 366 tasks/sec against
+`BenchmarkSchedNoTraceSkewed` 126 095, an 18% gap where the matrix measured 4.7%).
+They are reported for completeness and quoted only for the micro-costs; the
+matrix is the measurement the tables above use.
+
 ### Why speedup saturates: a probe, not a guess
 
 The uniform workload's speedup stops at ~5× on 12 cores. Two explanations were
@@ -575,3 +608,4 @@ results/   machine.txt bench.csv bench-summary.txt bench-variance.txt
 | p50/p99/max latency per implementation and P | `results/skewed-latency.txt` |
 | work-unit scaling probe (why speedup saturates) | `results/core-scaling-probe.txt` |
 | the committed trace and its aggregate reading | `results/example-trace.json`, `results/example-trace-report.txt`, `results/example-trace-info.txt` |
+| Go benchmark run (`go test -run XXX -bench=. -benchtime=1s ./...`) | `results/go-benchmarks.txt` |
