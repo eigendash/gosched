@@ -211,7 +211,7 @@ The drop policy is stated precisely in **Limitations** below.
 
 ### 7. Why the trace format is the interesting part
 
-A benchmark can tell you a scheduler was faster. It cannot tell you *which
+A benchmark can report that a scheduler was faster. It cannot report *which
 mechanism* did it, and it cannot distinguish "the work stealing helped" from "the
 machine was warm that run". The trace can: it records who probed whom, how deep
 the victim's queue was, who actually ran each task, how long each task waited,
